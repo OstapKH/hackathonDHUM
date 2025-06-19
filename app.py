@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, callback, dash_table
+from dash import dcc, html, Input, Output, callback, dash_table, State
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
@@ -8,6 +8,8 @@ import numpy as np
 from collections import Counter
 import logging
 import math
+from translations import TRANSLATIONS
+from geocoding import get_city_coords
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 # Initialize the Dash app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.title = "PluG2 Linguistic Corpus Explorer"
+
+# Helper to get language
+def get_lang(lang_code):
+    return TRANSLATIONS.get(lang_code, TRANSLATIONS['EN'])
+
+# Set the app title (will be updated by callback)
+app.title = get_lang('UA')["app_title"]
 
 # Data loading function
 def load_metadata():
@@ -46,14 +54,27 @@ metadata_df = load_metadata()
 
 # App layout
 app.layout = dbc.Container([
+    # Store for language selection
+    dcc.Store(id='language-store', storage_type='session', data='UA'),
+
     # Header
     dbc.Row([
         dbc.Col([
-            html.H1("PluG2 Linguistic Corpus Explorer", 
-                   className="text-center mb-4 text-primary"),
-            html.P("Explore the rich metadata of the PluG2 Ukrainian linguistic corpus",
-                  className="text-center text-muted mb-4")
-        ])
+            html.H1(id='header-title', className="text-center mb-4 text-primary"),
+            html.P(id='header-subtitle', className="text-center text-muted mb-4")
+        ]),
+        dbc.Col([
+            dcc.Dropdown(
+                id='language-dropdown',
+                options=[
+                    {'label': 'Українська', 'value': 'UA'},
+                    {'label': 'English', 'value': 'EN'}
+                ],
+                value='UA',
+                clearable=False,
+                style={'width': '150px', 'float': 'right'}
+            )
+        ], width='auto')
     ]),
     
     # Statistics cards
@@ -61,7 +82,7 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
-                    html.H4("Total Records", className="card-title"),
+                    html.H4(id='stat-total-records', className="card-title"),
                     html.H2(f"{len(metadata_df):,}", className="text-primary")
                 ])
             ])
@@ -69,7 +90,7 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
-                    html.H4("Unique Authors", className="card-title"),
+                    html.H4(id='stat-unique-authors', className="card-title"),
                     html.H2(f"{metadata_df['Author 1 Name'].nunique():,}", className="text-success")
                 ])
             ])
@@ -77,7 +98,7 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
-                    html.H4("Publication Years", className="card-title"),
+                    html.H4(id='stat-publication-years', className="card-title"),
                     html.H2(f"{metadata_df['Publication Year'].nunique():,}", className="text-info")
                 ])
             ])
@@ -85,7 +106,7 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Card([
                 dbc.CardBody([
-                    html.H4("Genres", className="card-title"),
+                    html.H4(id='stat-genres', className="card-title"),
                     html.H2(f"{metadata_df['Genre Code'].nunique():,}", className="text-warning")
                 ])
             ])
@@ -95,33 +116,23 @@ app.layout = dbc.Container([
     # Controls row
     dbc.Row([
         dbc.Col([
-            html.Label("Select Visualization Type:"),
+            html.Label(id='label-viz-type'),
             dcc.Dropdown(
                 id='chart-type-dropdown',
-                options=[
-                    {'label': 'Публікації за роками', 'value': 'year'},
-                    {'label': 'Authors by Gender', 'value': 'gender'},
-                    {'label': 'Genre Distribution', 'value': 'genre'},
-                    {'label': 'Geographic Distribution', 'value': 'geography'},
-                    {'label': 'Publication Cities', 'value': 'cities'}
-                ],
                 value='year',
                 className="mb-3"
             )
         ], width=4),
         dbc.Col([
-            html.Label("Filter by Genre:"),
+            html.Label(id='label-genre-filter'),
             dcc.Dropdown(
                 id='genre-filter',
-                options=[{'label': 'All Genres', 'value': 'all'}] + 
-                        [{'label': genre, 'value': genre} 
-                         for genre in sorted(metadata_df['Genre Code'].dropna().unique()) if genre],
                 value='all',
                 className="mb-3"
             )
         ], width=4, id="genre-filter-col"),
         dbc.Col([
-            html.Label("Year Range:"),
+            html.Label(id='label-year-range'),
             dcc.RangeSlider(
                 id='year-range',
                 min=metadata_df['Publication Year'].min() if not metadata_df['Publication Year'].isna().all() else 1800,
@@ -138,7 +149,7 @@ app.layout = dbc.Container([
     # Additional controls row for trend line (conditionally visible)
     dbc.Row([
         dbc.Col([
-            html.Label("Trend Line Smoothing (Years):"),
+            html.Label(id='label-trend-smoothing'),
             dcc.Slider(
                 id='trend-window',
                 min=3,
@@ -151,10 +162,9 @@ app.layout = dbc.Container([
             )
         ], width=6),
         dbc.Col([
-            html.Label("Show Trend Line:"),
+            html.Label(id='label-show-trend-line'),
             dbc.Switch(
                 id="trend-toggle",
-                label="Enable trend line",
                 value=True,
                 className="mb-3"
             )
@@ -164,7 +174,7 @@ app.layout = dbc.Container([
     # Additional controls row for genre chart (conditionally visible)
     dbc.Row([
         dbc.Col([
-            html.Label("Number of Top Genres to Show:"),
+            html.Label(id='label-top-genres-count'),
             dcc.Slider(
                 id='top-genres-count',
                 min=5,
@@ -177,13 +187,9 @@ app.layout = dbc.Container([
             )
         ], width=6),
         dbc.Col([
-            html.Label("Sort Order:"),
+            html.Label(id='label-sort-order'),
             dcc.RadioItems(
                 id="genre-sort-order",
-                options=[
-                    {"label": "Highest to Lowest", "value": "desc"},
-                    {"label": "Lowest to Highest", "value": "asc"}
-                ],
                 value="desc",
                 className="mb-3"
             )
@@ -193,13 +199,9 @@ app.layout = dbc.Container([
     # Additional controls row for geography chart (conditionally visible)
     dbc.Row([
         dbc.Col([
-            html.Label("Geographic Data Type:"),
+            html.Label(id='label-geo-data-type'),
             dcc.RadioItems(
                 id="geo-data-type",
-                options=[
-                    {"label": "Publications per Country", "value": "publications"},
-                    {"label": "Unique Authors per Country", "value": "authors"}
-                ],
                 value="publications",
                 className="mb-3"
             )
@@ -230,7 +232,7 @@ app.layout = dbc.Container([
     # Data table
     dbc.Row([
         dbc.Col([
-            html.H3("Sample Data", className="mb-3"),
+            html.H3(id='header-sample-data', className="mb-3"),
             dash_table.DataTable(
                 id='data-table',
                 columns=[
@@ -253,7 +255,88 @@ app.layout = dbc.Container([
     ])
 ], fluid=True)
 
-# Callbacks
+# Callback to store language choice
+@app.callback(
+    Output('language-store', 'data'),
+    Input('language-dropdown', 'value')
+)
+def update_language_store(language):
+    return language
+
+# Callback to update all text elements based on language
+@app.callback(
+    [Output('header-title', 'children'),
+     Output('header-subtitle', 'children'),
+     Output('stat-total-records', 'children'),
+     Output('stat-unique-authors', 'children'),
+     Output('stat-publication-years', 'children'),
+     Output('stat-genres', 'children'),
+     Output('label-viz-type', 'children'),
+     Output('chart-type-dropdown', 'options'),
+     Output('label-genre-filter', 'children'),
+     Output('genre-filter', 'options'),
+     Output('label-year-range', 'children'),
+     Output('label-trend-smoothing', 'children'),
+     Output('label-show-trend-line', 'children'),
+     Output('trend-toggle', 'label'),
+     Output('label-top-genres-count', 'children'),
+     Output('label-sort-order', 'children'),
+     Output('genre-sort-order', 'options'),
+     Output('header-sample-data', 'children'),
+     Output('data-table', 'columns')],
+    [Input('language-store', 'data')]
+)
+def update_texts(lang_code):
+    lang = get_lang(lang_code)
+    
+    chart_type_options = [
+        {'label': lang['viz_type_year'], 'value': 'year'},
+        {'label': lang['viz_type_gender'], 'value': 'gender'},
+        {'label': lang['viz_type_genre'], 'value': 'genre'},
+        {'label': lang['viz_type_geography'], 'value': 'geography'}
+    ]
+
+    genre_filter_options = [{'label': lang['all_genres'], 'value': 'all'}] + \
+                           [{'label': genre, 'value': genre} 
+                            for genre in sorted(metadata_df['Genre Code'].dropna().unique()) if genre]
+
+    genre_sort_options = [
+        {"label": lang['sort_desc'], "value": "desc"},
+        {"label": lang['sort_asc'], "value": "asc"}
+    ]
+
+    datatable_columns = [
+        {"name": lang["datatable_name"], "id": "Name"},
+        {"name": lang["datatable_pub_year"], "id": "Publication Year"},
+        {"name": lang["datatable_genre"], "id": "Genre Code"},
+        {"name": lang["datatable_author"], "id": "Author 1 Name"},
+        {"name": lang["datatable_gender"], "id": "Author 1 Sex"},
+        {"name": lang["datatable_pub_city"], "id": "Publication City"}
+    ]
+
+    return (
+        lang['header_title'],
+        lang['header_subtitle'],
+        lang['total_records'],
+        lang['unique_authors'],
+        lang['publication_years_stat'],
+        lang['genres_stat'],
+        lang['select_viz_type'],
+        chart_type_options,
+        lang['filter_by_genre'],
+        genre_filter_options,
+        lang['year_range'],
+        lang['trend_smoothing'],
+        lang['show_trend_line'],
+        lang['enable_trend_line'],
+        lang['top_genres_count'],
+        lang['sort_order'],
+        genre_sort_options,
+        lang['sample_data_header'],
+        datatable_columns
+    )
+
+# Main chart callback
 @app.callback(
     Output('main-chart', 'figure'),
     [Input('chart-type-dropdown', 'value'),
@@ -263,10 +346,14 @@ app.layout = dbc.Container([
      Input('trend-toggle', 'value'),
      Input('top-genres-count', 'value'),
      Input('genre-sort-order', 'value'),
-     Input('geo-data-type', 'value')]
+     Input('geo-data-type', 'value'),
+     Input('main-chart', 'relayoutData')],
+    [State('language-store', 'data')]
 )
-def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend, top_genres_count, genre_sort_order, geo_data_type):
+def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend, top_genres_count, genre_sort_order, geo_data_type, relayout_data, lang_code):
     """Update the main chart based on user selections"""
+    lang = get_lang(lang_code)
+
     if metadata_df.empty:
         return {}
     
@@ -303,7 +390,7 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
                 xbins=dict(size=1),  # One year per bar
                 marker_color='#0dcaf0',
                 marker_line_width=0,
-                name='Publications'
+                name=lang['chart_legend_publications']
             ))
             
             # Calculate yearly publication counts
@@ -329,8 +416,8 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
                     y=trend_data['trend'],
                     mode='lines',
                     line=dict(color='#009ab8', width=3, dash='solid'),
-                    name=f'Trend Line ({trend_window}-year avg)',
-                    hovertemplate=f'Year: %{{x}}<br>Trend ({trend_window}yr): %{{y:.1f}}<extra></extra>'
+                    name=lang['chart_trend_line_label'].format(trend_window=trend_window),
+                    hovertemplate=lang['chart_trend_hover'].format(trend_window=trend_window)
                 ))
             elif show_trend and len(year_counts) >= 3:
                 # Fallback for insufficient data - show simplified trend
@@ -339,15 +426,15 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
                     y=year_counts['count'],
                     mode='lines',
                     line=dict(color='red', width=2, dash='dash'),
-                    name='Data Line (insufficient data for trend)',
-                    hovertemplate='Year: %{x}<br>Publications: %{y}<extra></extra>'
+                    name=lang['chart_insufficient_data'],
+                    hovertemplate=lang['chart_insufficient_data_hover']
                 ))
             
             # Update layout
             fig.update_layout(
-                title='Publications by Year (Histogram)',
-                xaxis_title="Publication Year",
-                yaxis_title="Number of Publications",
+                title=lang['chart_title_year'],
+                xaxis_title=lang['chart_xaxis_year'],
+                yaxis_title=lang['chart_yaxis_publications'],
                 bargap=0,  # No margins between bars
                 showlegend=False
             )
@@ -355,7 +442,7 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
             # Fallback if no valid years
             fig = px.histogram(
                 x=[],
-                title='Publications by Year: No valid publication years found'
+                title=lang['chart_no_year_data']
             )
         
     elif chart_type == 'gender':
@@ -390,7 +477,7 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
         )
         
         fig.update_layout(
-            title='Authors by Gender',
+            title=lang['chart_title_gender'],
             font=dict(size=14)
         )
         
@@ -406,18 +493,18 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
         if genre_sort_order == 'asc':
             # Show top genres arranged from lowest to highest count
             display_genres = top_genres.sort_values(ascending=True)
-            sort_label = "Lowest to Highest"
+            sort_label = lang['sort_asc']
         else:  # 'desc'
             # Show top genres arranged from highest to lowest count  
             display_genres = top_genres.sort_values(ascending=False)
-            sort_label = "Highest to Lowest"
+            sort_label = lang['sort_desc']
         
         fig = px.bar(
             x=display_genres.values, 
             y=display_genres.index,
             orientation='h', 
-            title=f'Top {top_genres_count} Genres ({sort_label})',
-            labels={'x': 'Number of Works', 'y': 'Genre'}
+            title=lang['chart_title_genre'].format(top_genres_count=top_genres_count, sort_label=sort_label),
+            labels={'x': lang['chart_xaxis_works'], 'y': lang['chart_yaxis_genre']}
         )
         
         # Customize bar appearance
@@ -428,184 +515,130 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
         )
         
     elif chart_type == 'geography':
-        # Geographic distribution - OpenStreetMap with country data
-        if geo_data_type == 'authors':
-            # Count unique authors per country
-            geo_counts = filtered_df.groupby('Author 1 Location Country')['Author 1 Name'].nunique()
-            data_label = "Unique Authors"
-        else:
-            # Count publications per country
-            geo_counts = filtered_df['Author 1 Location Country'].value_counts()
-            data_label = "Publications"
+        # --- Geography View (Countries and Cities) ---
         
-        # Country coordinates mapping using country codes
-        country_coords = {
-            'UA': [49.0, 32.0],  # Ukraine
-            'RU': [55.7558, 37.6176],  # Russia
-            'PL': [52.2297, 21.0122],  # Poland
-            'DE': [51.1657, 10.4515],  # Germany
-            'AT': [47.5162, 14.5501],  # Austria
-            'US': [39.8283, -98.5795],  # USA
-            'CA': [56.1304, -106.3468],  # Canada
-            'FR': [46.2276, 2.2137],  # France
-            'GB': [55.3781, -3.4360],  # United Kingdom
-            'IT': [41.8719, 12.5674],  # Italy
-            'CZ': [49.8175, 15.4730],  # Czech Republic
-            'SK': [48.6690, 19.6990],  # Slovakia
-            'HU': [47.1625, 19.5033],  # Hungary
-            'RO': [45.9432, 24.9668],  # Romania
-            'BG': [42.7339, 25.4858],  # Bulgaria
-            'RS': [44.0165, 21.0059],  # Serbia
-            'HR': [45.1000, 15.2000],  # Croatia
-            'SI': [46.1512, 14.9955],  # Slovenia
-            'BY': [53.7098, 27.9534],  # Belarus
-            'LT': [55.1694, 23.8813],  # Lithuania
-            'LV': [56.8796, 24.6032],  # Latvia
-            'EE': [58.5953, 25.0136],  # Estonia
-            'FI': [61.9241, 25.7482],  # Finland
-            'SE': [60.1282, 18.6435],  # Sweden
-            'NO': [60.4720, 8.4689],  # Norway
-            'DK': [56.2639, 9.5018],  # Denmark
-            'NL': [52.1326, 5.2913],  # Netherlands
-            'BE': [50.5039, 4.4699],  # Belgium
-            'CH': [46.8182, 8.2275],  # Switzerland
-            'ES': [40.4637, -3.7492],  # Spain
-            'PT': [39.3999, -8.2245],  # Portugal
-            'AU': [-25.2744, 133.7751],  # Australia
-            'BR': [-14.2350, -51.9253],  # Brazil
-            'AR': [-38.4161, -63.6167],  # Argentina
-            'IL': [31.0461, 34.8516],  # Israel
-            'TR': [38.9637, 35.2433],  # Turkey
-            'GR': [39.0742, 21.8243],  # Greece
-            'JP': [36.2048, 138.2529],  # Japan
-            'CN': [35.8617, 104.1954],  # China
-            'IN': [20.5937, 78.9629],  # India
-            'MX': [23.6345, -102.5528]  # Mexico
-        }
-        
-        # Country names for display
-        country_names = {
-            'UA': 'Ukraine',
-            'RU': 'Russia',
-            'PL': 'Poland',
-            'DE': 'Germany',
-            'AT': 'Austria',
-            'US': 'USA',
-            'CA': 'Canada',
-            'FR': 'France',
-            'GB': 'United Kingdom',
-            'IT': 'Italy',
-            'CZ': 'Czech Republic',
-            'SK': 'Slovakia',
-            'HU': 'Hungary',
-            'RO': 'Romania',
-            'BG': 'Bulgaria',
-            'RS': 'Serbia',
-            'HR': 'Croatia',
-            'SI': 'Slovenia',
-            'BY': 'Belarus',
-            'LT': 'Lithuania',
-            'LV': 'Latvia',
-            'EE': 'Estonia',
-            'FI': 'Finland',
-            'SE': 'Sweden',
-            'NO': 'Norway',
-            'DK': 'Denmark',
-            'NL': 'Netherlands',
-            'BE': 'Belgium',
-            'CH': 'Switzerland',
-            'ES': 'Spain',
-            'PT': 'Portugal',
-            'AU': 'Australia',
-            'BR': 'Brazil',
-            'AR': 'Argentina',
-            'IL': 'Israel',
-            'TR': 'Turkey',
-            'GR': 'Greece',
-            'JP': 'Japan',
-            'CN': 'China',
-            'IN': 'India',
-            'MX': 'Mexico'
-        }
-        
-        # Prepare data for map
-        countries = []
-        lats = []
-        lons = []
-        counts = []
-        hover_texts = []
-        
-        for country_code, count in geo_counts.items():
-            if country_code and country_code in country_coords:
-                country_name = country_names.get(country_code, country_code)
-                countries.append(country_code)
-                lats.append(country_coords[country_code][0])
-                lons.append(country_coords[country_code][1])
-                counts.append(count)
-                hover_texts.append(f"{country_name}<br>{data_label}: {count}")
-        
-        if countries:
-            # Create size array for markers (scale based on counts)
-            max_count = max(counts) if counts else 1
-            marker_sizes = [max(8, min(50, (count / max_count) * 40 + 10)) for count in counts]
+        # Determine current view from map's relayoutData
+        zoom = 3.0
+        center = {'lat': 49.0, 'lon': 32.0}
+        if relayout_data:
+            if 'mapbox.zoom' in relayout_data:
+                zoom = relayout_data['mapbox.zoom']
+            if 'mapbox.center' in relayout_data:
+                center = relayout_data['mapbox.center']
+
+        ZOOM_THRESHOLD = 5  # Zoom level to switch from countries to cities
+
+        if zoom >= ZOOM_THRESHOLD:
+            # --- City View ---
+            if geo_data_type == 'authors':
+                city_counts = filtered_df.groupby('Publication City')['Author 1 Name'].nunique()
+                data_label = lang['geo_authors_city']
+                chart_title = lang['chart_title_geo_city'].format(data_label=data_label)
+            else:
+                city_counts = filtered_df['Publication City'].value_counts()
+                data_label = lang['geo_publications_city']
+                chart_title = lang['chart_title_geo_city'].format(data_label=data_label)
+
+            city_counts = city_counts[city_counts.index != ''] # Exclude empty city names
             
-            fig = go.Figure(go.Scattermapbox(
-                lat=lats,
-                lon=lons,
-                mode='markers',
-                marker=go.scattermapbox.Marker(
-                    size=marker_sizes,
-                    color=counts,
-                    colorscale='RdBu_r',  # Blue to Red colorscale
-                    showscale=True,
-                    colorbar=dict(title=data_label),
-                    sizemode='diameter',
-                    opacity=0.8
-                ),
-                text=hover_texts,
-                hovertemplate='%{text}<extra></extra>',
-                name='Publications by Country'
-            ))
+            lats, lons, counts, hover_texts = [], [], [], []
+            for city_name, count in city_counts.items():
+                coords = get_city_coords(city_name)
+                if coords:
+                    lats.append(coords[0])
+                    lons.append(coords[1])
+                    counts.append(count)
+                    hover_texts.append(f"{city_name}<br>{data_label}: {count}")
+
+            if lats:
+                max_count = max(counts) if counts else 1
+                marker_sizes = [max(5, min(40, math.log(c+1) * 5)) for c in counts]
+                
+                fig = go.Figure(go.Scattermapbox(
+                    lat=lats,
+                    lon=lons,
+                    mode='markers',
+                    marker=go.scattermapbox.Marker(
+                        size=marker_sizes,
+                        color=counts,
+                        colorscale='YlOrRd',
+                        showscale=True,
+                        colorbar=dict(title=data_label),
+                        sizemode='diameter',
+                        opacity=0.7
+                    ),
+                    text=hover_texts,
+                    hovertemplate='%{text}<extra></extra>'
+                ))
+            else:
+                fig = go.Figure(go.Scattermapbox(lat=[], lon=[])) # Empty map
+            
         else:
-            # Fallback if no country data
-            fig = go.Figure(go.Scattermapbox(
-                lat=[49.0],
-                lon=[32.0],
-                mode='markers',
-                marker=go.scattermapbox.Marker(size=0),
-            ))
+            # --- Country View ---
+            if geo_data_type == 'authors':
+                geo_counts = filtered_df.groupby('Author 1 Location Country')['Author 1 Name'].nunique()
+                data_label = lang['chart_data_label_authors']
+            else:
+                geo_counts = filtered_df['Author 1 Location Country'].value_counts()
+                data_label = lang['chart_data_label_publications']
+            
+            chart_title = lang['chart_title_geo'].format(data_label=data_label)
+
+            # Country coordinates and names (existing logic)
+            country_coords = { 'UA': [49.0, 32.0], 'RU': [55.7558, 37.6176], 'PL': [52.2297, 21.0122], 'DE': [51.1657, 10.4515], 'AT': [47.5162, 14.5501], 'US': [39.8283, -98.5795], 'CA': [56.1304, -106.3468], 'FR': [46.2276, 2.2137], 'GB': [55.3781, -3.4360], 'IT': [41.8719, 12.5674], 'CZ': [49.8175, 15.4730], 'SK': [48.6690, 19.6990], 'HU': [47.1625, 19.5033], 'RO': [45.9432, 24.9668], 'BG': [42.7339, 25.4858], 'RS': [44.0165, 21.0059], 'HR': [45.1000, 15.2000], 'SI': [46.1512, 14.9955], 'BY': [53.7098, 27.9534], 'LT': [55.1694, 23.8813], 'LV': [56.8796, 24.6032], 'EE': [58.5953, 25.0136], 'FI': [61.9241, 25.7482], 'SE': [60.1282, 18.6435], 'NO': [60.4720, 8.4689], 'DK': [56.2639, 9.5018], 'NL': [52.1326, 5.2913], 'BE': [50.5039, 4.4699], 'CH': [46.8182, 8.2275], 'ES': [40.4637, -3.7492], 'PT': [39.3999, -8.2245], 'AU': [-25.2744, 133.7751], 'BR': [-14.2350, -51.9253], 'AR': [-38.4161, -63.6167], 'IL': [31.0461, 34.8516], 'TR': [38.9637, 35.2433], 'GR': [39.0742, 21.8243], 'JP': [36.2048, 138.2529], 'CN': [35.8617, 104.1954], 'IN': [20.5937, 78.9629], 'MX': [23.6345, -102.5528] }
+            country_names = { 'UA': 'Ukraine', 'RU': 'Russia', 'PL': 'Poland', 'DE': 'Germany', 'AT': 'Austria', 'US': 'USA', 'CA': 'Canada', 'FR': 'France', 'GB': 'United Kingdom', 'IT': 'Italy', 'CZ': 'Czech Republic', 'SK': 'Slovakia', 'HU': 'Hungary', 'RO': 'Romania', 'BG': 'Bulgaria', 'RS': 'Serbia', 'HR': 'Croatia', 'SI': 'Slovenia', 'BY': 'Belarus', 'LT': 'Lithuania', 'LV': 'Latvia', 'EE': 'Estonia', 'FI': 'Finland', 'SE': 'Sweden', 'NO': 'Norway', 'DK': 'Denmark', 'NL': 'Netherlands', 'BE': 'Belgium', 'CH': 'Switzerland', 'ES': 'Spain', 'PT': 'Portugal', 'AU': 'Australia', 'BR': 'Brazil', 'AR': 'Argentina', 'IL': 'Israel', 'TR': 'Turkey', 'GR': 'Greece', 'JP': 'Japan', 'CN': 'China', 'IN': 'India', 'MX': 'Mexico' }
+
+            lats, lons, counts, hover_texts = [], [], [], []
+            for country_code, count in geo_counts.items():
+                if country_code and country_code in country_coords:
+                    country_name = country_names.get(country_code, country_code)
+                    lats.append(country_coords[country_code][0])
+                    lons.append(country_coords[country_code][1])
+                    counts.append(count)
+                    hover_texts.append(f"{country_name}<br>{data_label}: {count}")
+            
+            if lats:
+                max_count = max(counts) if counts else 1
+                marker_sizes = [max(8, min(50, (count / max_count) * 40 + 10)) for count in counts]
+                
+                fig = go.Figure(go.Scattermapbox(
+                    lat=lats,
+                    lon=lons,
+                    mode='markers',
+                    marker=go.scattermapbox.Marker(
+                        size=marker_sizes,
+                        color=counts,
+                        colorscale='RdBu_r',
+                        showscale=True,
+                        colorbar=dict(title=data_label),
+                        sizemode='diameter',
+                        opacity=0.8
+                    ),
+                    text=hover_texts,
+                    hovertemplate='%{text}<extra></extra>',
+                ))
+            else:
+                fig = go.Figure(go.Scattermapbox(lat=[], lon=[])) # Empty map
         
+        # General map layout settings
         fig.update_layout(
             mapbox=dict(
                 style="open-street-map",
-                center=dict(lat=49.0, lon=32.0),
-                zoom=3
+                center=center,
+                zoom=zoom
             ),
-            title=f'Geographic Distribution - {data_label} by Country',
+            title=chart_title,
             showlegend=False,
             height=600,
-            # Ensure map controls are visible and functional
-            dragmode='pan',
-            # Show modebar (toolbar) with zoom controls
             margin=dict(l=0, r=0, t=40, b=0)
         )
-        
-        # Configure additional map controls
-        fig.update_layout(
-            # Enable all standard modebar buttons including zoom
-            modebar=dict(
-                bgcolor='rgba(255,255,255,0.8)',
-                color='black',
-                activecolor='blue'
-            )
-        )
-        
+
     elif chart_type == 'cities':
         # Publication cities
         city_counts = filtered_df['Publication City'].value_counts().head(15)
         fig = px.bar(x=city_counts.values, y=city_counts.index,
-                    orientation='h', title='Top 15 Publication Cities',
-                    labels={'x': 'Number of Publications', 'y': 'City'})
+                    orientation='h', title=lang['chart_title_cities'],
+                    labels={'x': lang['chart_yaxis_publications'], 'y': lang['chart_yaxis_city']})
     
 
     else:
@@ -663,7 +696,36 @@ def toggle_controls(chart_type):
     genre_filter_style = {"display": "none"} if chart_type == 'genre' else {"display": "block"}
     return trend_style, genre_controls_style, geography_controls_style, genre_filter_style
 
+# Callback to update geo control labels based on zoom AND language
+@app.callback(
+    [Output('geo-data-type', 'options'),
+     Output('label-geo-data-type', 'children')],
+    [Input('main-chart', 'relayoutData'),
+     Input('language-store', 'data')]
+)
+def update_geo_controls(relayout_data, lang_code):
+    lang = get_lang(lang_code)
+    zoom = 3.0
+    if relayout_data and 'mapbox.zoom' in relayout_data:
+        zoom = relayout_data['mapbox.zoom']
+    
+    ZOOM_THRESHOLD = 5
 
+    if zoom >= ZOOM_THRESHOLD:
+        # City view
+        label = lang['geo_data_type_city']
+        options = [
+            {"label": lang['geo_publications_city'], "value": "publications"},
+            {"label": lang['geo_authors_city'], "value": "authors"}
+        ]
+    else:
+        # Country view
+        label = lang['geo_data_type']
+        options = [
+            {"label": lang['geo_publications'], "value": "publications"},
+            {"label": lang['geo_authors'], "value": "authors"}
+        ]
+    return options, label
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050) 
