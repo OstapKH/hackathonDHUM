@@ -43,7 +43,7 @@ TRANSLATIONS = {
         "chart_insufficient_data_hover": "Рік: %{x}<br>Публікації: %{y}<extra></extra>",
         "chart_no_year_data": "Публікації за роками: не знайдено дійсних років публікації",
         "chart_title_gender": "Стать автора",
-        "chart_title_genre": "Топ {top_genres_count} жанрів ({sort_label})",
+        "chart_title_genre": "Топ {top_genres_count} жанрів",
         "chart_xaxis_works": "Кількість творів",
         "chart_yaxis_genre": "Жанр",
         "chart_data_label_authors": "Унікальні автори",
@@ -55,7 +55,9 @@ TRANSLATIONS = {
         "geo_data_type_city": "Тип даних (міста):",
         "geo_publications_city": "Публікації за містом",
         "geo_authors_city": "Автори за містом",
-        "chart_title_geo_city": "Географічний розподіл - {data_label} за містом"
+        "chart_title_geo_city": "Географічний розподіл - {data_label} за містом",
+        "top_cities_distribution": "Розподіл за топ-містами",
+        "no_city_data": "Немає даних по містах"
     },
     'EN': {
         "app_title": "PluG2 Linguistic Corpus Explorer",
@@ -101,7 +103,7 @@ TRANSLATIONS = {
         "chart_insufficient_data_hover": "Year: %{x}<br>Publications: %{y}<extra></extra>",
         "chart_no_year_data": "Publications by Year: No valid publication years found",
         "chart_title_gender": "Authors by Gender",
-        "chart_title_genre": "Top {top_genres_count} Genres ({sort_label})",
+        "chart_title_genre": "Top {top_genres_count} Genres",
         "chart_xaxis_works": "Number of Works",
         "chart_yaxis_genre": "Genre",
         "chart_data_label_authors": "Unique Authors",
@@ -113,6 +115,8 @@ TRANSLATIONS = {
         "geo_data_type_city": "Data Type (Cities):",
         "geo_publications_city": "Publications per City",
         "geo_authors_city": "Authors per City",
-        "chart_title_geo_city": "Geographic Distribution - {data_label} by City"
+        "chart_title_geo_city": "Geographic Distribution - {data_label} by City",
+        "top_cities_distribution": "Top Cities Distribution",
+        "no_city_data": "No city data available"
     }
 } 
