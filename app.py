@@ -99,7 +99,7 @@ app.layout = dbc.Container([
             dcc.Dropdown(
                 id='chart-type-dropdown',
                 options=[
-                    {'label': 'Publications by Year', 'value': 'year'},
+                    {'label': 'Публікації за роками', 'value': 'year'},
                     {'label': 'Authors by Gender', 'value': 'gender'},
                     {'label': 'Genre Distribution', 'value': 'genre'},
                     {'label': 'Geographic Distribution', 'value': 'geography'},
@@ -587,7 +587,6 @@ def update_chart(chart_type, genre_filter, year_range, trend_window, show_trend,
             # Ensure map controls are visible and functional
             dragmode='pan',
             # Show modebar (toolbar) with zoom controls
-            showlegend=False,
             margin=dict(l=0, r=0, t=40, b=0)
         )
         
